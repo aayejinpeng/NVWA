@@ -1,3 +1,6 @@
 *.riscv
 *.out
 *.dump
+.venv
+**/.build
+**/__pycache__
