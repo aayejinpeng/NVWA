@@ -2,6 +2,7 @@
 
 #if defined(__riscv)// RISC-V 架构
 void softmax(float* x, float* y, int M, int N) {
+
 }
 #else
 // fallback 普通 C 实现
