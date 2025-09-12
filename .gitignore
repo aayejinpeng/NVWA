@@ -4,3 +4,6 @@
 .venv
 **/.build
 **/__pycache__
+initenv-remote.sh
+.log
+*.log

@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# -----------------------
+# 配置
+# -----------------------
+USER="orangepi"
+HOST="10.156.120.55"
+PORT=10022
+SSH_KEY="$HOME/.ssh/id_rsa"
+LOG_FILE="./.log/riscv_run_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p .log
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# -----------------------
+# SSH可用性检查
+# -----------------------
+echo ">>> Checking SSH connectivity to $HOST..."
+ssh -i "$SSH_KEY" -p "$PORT" -q -o BatchMode=yes -o ConnectTimeout=5 "$USER@$HOST" exit
+if [ $? -ne 0 ]; then
+    echo "ERROR: Cannot SSH to $HOST. Please check network and credentials."
+    exit 1
+fi
+echo "SSH connection successful."
+
+# -----------------------
+# 要执行的命令（按顺序）
+# -----------------------
+COMMANDS=$(cat <<ENDSSH
+echo "Starting on RISC-V board..."
+mkdir -p /home/orangepi/nvwa || exit 1
+cd /home/orangepi/nvwa || exit 1
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple cffi numpy
+echo "Installing additional packages..."
+ENDSSH
+)
+
+
+# -----------------------
+# 执行 SSH 命令并保存日志
+# -----------------------
+echo ">>> Executing commands on $HOST..."
+ssh -i "$SSH_KEY" -p "$PORT" "$USER@$HOST" <<EOF | tee "$LOG_FILE"
+$COMMANDS
+EOF
+
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    echo "ERROR: Some command failed. Check the log file $LOG_FILE"
+    exit 1
+fi
+
+echo "All commands executed successfully. Log saved to $LOG_FILE"
