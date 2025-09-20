@@ -1,8 +1,9 @@
 #include <math.h>
+#include <stdio.h>
 
 #if defined(__riscv)// RISC-V 架构
 void softmax(float* x, float* y, int M, int N) {
-
+    printf("RISC-V specific implementation WORK IN PROGRESS\n");
 }
 #else
 // fallback 普通 C 实现

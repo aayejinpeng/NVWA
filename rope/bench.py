@@ -85,33 +85,34 @@ def ops_python(tensor, rope_theta, pos = 0):  #[batch,n_head,seq_len,head_dim]
     :param pos: int, 位置索引, 默认为0
     :return: np.ndarray, 位置编码后的张量，形状与输入相同
     """
-    # 获取张量的形状
-    batch, n_head, seq_len, head_dim = tensor.shape
+    # # 获取张量的形状
+    # batch, n_head, seq_len, head_dim = tensor.shape
     
-    # 初始化结果张量
-    out = np.zeros_like(tensor)
+    # # 初始化结果张量
+    # out = np.zeros_like(tensor)
 
-    # 遍历每个 batch 和每个 sequence
-    for b in range(batch):
-        for i in range(n_head):
-            for j in range(seq_len):
-                for k in range(0, head_dim, 2):
-                    # 计算每个位置和维度的旋转角度
-                    pos_ = j + pos
-                    dim_ = k
-                    angle = rope_theta[dim_ // 2] * pos_
-                    sin_val = np.sin(angle)
-                    cos_val = np.cos(angle)
+    # # 遍历每个 batch 和每个 sequence
+    # for b in range(batch):
+    #     for i in range(n_head):
+    #         for j in range(seq_len):
+    #             for k in range(0, head_dim, 2):
+    #                 # 计算每个位置和维度的旋转角度
+    #                 pos_ = j + pos
+    #                 dim_ = k
+    #                 angle = rope_theta[dim_ // 2] * pos_
+    #                 sin_val = np.sin(angle)
+    #                 cos_val = np.cos(angle)
                     
-                    # 计算旋转后的值
-                    x = tensor[b, i, j, k]
-                    y = tensor[b, i, j, k+1]
+    #                 # 计算旋转后的值
+    #                 x = tensor[b, i, j, k]
+    #                 y = tensor[b, i, j, k+1]
                     
-                    # 对每个维度做旋转
-                    out[b, i, j, k] = x * cos_val - y * sin_val
-                    out[b, i, j, k+1] = x * sin_val + y * cos_val
+    #                 # 对每个维度做旋转
+    #                 out[b, i, j, k] = x * cos_val - y * sin_val
+    #                 out[b, i, j, k+1] = x * sin_val + y * cos_val
     
-    return out
+    # return out
+    return ops_numpy(tensor, rope_theta, pos)
 
 
 # --------------------------
@@ -140,8 +141,11 @@ def ops_numpy(tensor, rope_theta, pos=0):  #[batch,n_head, seq_len, head_dim]
         for i in range(tensor.shape[1]):  # 遍历每个头
             x1 = tensor[b, i, :, 0::2]  # 偶数索引
             x2 = tensor[b, i, :, 1::2]  # 奇数索引
-            out_b[i, :, 0::2] = x1 * cos - x2 * sin
-            out_b[i, :, 1::2] = x1 * sin + x2 * cos
+            out_left = np.zeros_like(x1)
+            out_left = x1 * cos - x2 * sin
+            out_right = np.zeros_like(x2)
+            out_right = x1 * sin + x2 * cos
+            out_b = np.concatenate([out_left, out_right], axis=-1)
         out.append(out_b)
         
     return np.array(out, dtype=np.float32)

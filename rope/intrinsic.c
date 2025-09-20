@@ -3,8 +3,8 @@
 
 #if defined(__riscv)// RISC-V 架构
 //TODO: Update the function definitions to reflect the new OPSNAME
-void rope(float* x, float* y, int M, int N) {
-
+void rope(float* input, float* output, float* rope_theta, int pos, int batch, int n_head, int seq_len, int head_dim) {
+    printf("RISC-V specific implementation WORK IN PROGRESS\n");
 }
 #else
 //TODO: Update the function definitions to reflect the new OPSNAME
@@ -30,8 +30,11 @@ void rope(float* input, float* output, float* rope_theta, int pos, int batch, in
                     float real = input[idx];
                     float imag = input[idx + 1];
 
-                    output[idx] = real * cos_val - imag * sin_val;     // 实部
-                    output[idx + 1] = real * sin_val + imag * cos_val; // 虚部
+                    int out_idx = b * n_head * seq_len * head_dim + i * seq_len * head_dim + j * head_dim + k/2;
+                    int out_idx_imag = b * n_head * seq_len * head_dim + i * seq_len * head_dim + j * head_dim + k/2 + head_dim/2;
+
+                    output[out_idx] = real * cos_val - imag * sin_val;     // 实部
+                    output[out_idx_imag] = real * sin_val + imag * cos_val; // 虚部
 
                 }
             }
