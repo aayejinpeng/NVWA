@@ -38,7 +38,7 @@ def build_libs():
 # --------------------------
 ffi = FFI()
 #TODO: Update the function definitions to reflect new OPS Input,Output,dim
-ffi.cdef("void " + OPSNAME + "(float* input, float* output, float* rope_theta, int pos, int batch, int seq_len, int n_head, int head_dim);")
+ffi.cdef("void " + OPSNAME + "(float* input, float* output, float* rope_theta, int pos, int batch, int n_head, int seq_len, int head_dim);")
 
 def load_libs():
     libs = {}
@@ -49,19 +49,22 @@ def load_libs():
 
 #TODO: Update the function definitions to reflect new OPS Input,Output,dim
 class ops_C:
-    def __init__(self, lib, ffi, tensor,):
+    def __init__(self, lib, ffi, tensor, rope_theta, pos=0):
         self.lib = lib
         self.ffi = ffi
         self.tensor = tensor
         self.batch, self.n_head, self.seq_len, self.head_dim = tensor.shape
-        self.out = np.empty((self.batch, self.seq_len, self.n_head, self.head_dim), dtype=np.float32)
+        self.rope_theta = rope_theta
+        self.pos = pos
+        self.out = np.empty((self.batch, self.n_head, self.seq_len, self.head_dim), dtype=np.float32)
 
     def __call__(self, x: np.ndarray):
         if x.dtype != np.float32 or not x.flags['C_CONTIGUOUS']:
             x = np.ascontiguousarray(x, dtype=np.float32)
         inp_ptr = self.ffi.cast("float*", self.ffi.from_buffer(x))
+        rope_ptr = self.ffi.cast("float*", self.ffi.from_buffer(self.rope_theta))
         out_ptr = self.ffi.cast("float*", self.ffi.from_buffer(self.out))
-        self.lib.__getattr__(OPSNAME)(inp_ptr, out_ptr, self.get_rope_theta(self.head_dim), self.batch, self.seq_len, self.n_head, self.head_dim)
+        self.lib.__getattr__(OPSNAME)(inp_ptr, out_ptr, rope_ptr, self.pos, self.batch, self.n_head, self.seq_len, self.head_dim)
         return self.out
 
 # --------------------------
@@ -70,7 +73,7 @@ class ops_C:
 def get_rope_theta(head_dim, basefreq=10000): #根据head_dim计算得到一个sin(theta)和cos(theta)的两个向量
     dim = np.arange(head_dim//2)
     inv_freq = 1.0 / (basefreq ** (dim / (head_dim//2)))  # 形状 [head_dim//2]
-    return inv_freq  # 形状 [head_dim//2],get_rope_theta*pos = angle
+    return inv_freq.astype(np.float32)  # 形状 [head_dim//2],get_rope_theta*pos = angle
 
 
 def ops_python(tensor, rope_theta, pos = 0):  #[batch,n_head,seq_len,head_dim]
@@ -167,26 +170,21 @@ def run_test(input_tensor, libs, repeat=50, diff_threshold=1e-5,basefreq=10000):
     diff_np = np.max(np.abs(y_py - y_np))
     print(f"[NumPy] time={t_np*1e3:.3f} ms  diff={diff_np:.2e}")
 
+    #刷新输出缓冲区
+    os.sys.stdout.flush()
     # C实现
     for name, lib in libs.items():
         #TODO: Update the function definitions to reflect new OPS Input,Output,dim
-        func = ops_C(lib, ffi, input_tensor)
+        func = ops_C(lib, ffi, input_tensor, rope_theta=rope_theta, pos=0)
         t, y_c = benchmark(func, input_tensor, repeat)
         diff = np.max(np.abs(y_py - y_c))
         print(f"[{name}] time={t*1e3:.3f} ms  diff={diff:.2e}")
         if diff > diff_threshold:
-            print(f"WARNING: {name} diff {diff:.2e} exceeds threshold {diff_threshold}")
-            # print(f"y_py: {y_py}")
-            # print(f"y_c: {y_c}")
-            #将每个y_py和y_c和差值组成一个三元组，打印出来，保持原来的张量形状，只是每个元素变成三元组了
-            # for i in range(y_py.shape[0]):
-            #     for j in range(y_py.shape[1]):
-            #         for k in range(y_py.shape[2]):
-            #             for l in range(y_py.shape[3]):
-            #                 if abs(y_py[i,j,k,l]-y_c[i,j,k,l]) > diff_threshold:
-            #                     print(f"Index ({i},{j},{k},{l}): (y_py: {y_py[i,j,k,l]}, y_c: {y_c[i,j,k,l]}, diff: {abs(y_py[i,j,k,l]-y_c[i,j,k,l])})")
+            print(f"\033[31mWARNING: {name} diff {diff:.2e} exceeds threshold {diff_threshold}\033[0m")
             print(f"Difference: {diff}")
             print(f"Threshold: {diff_threshold}")
+        else:
+            print(f"\033[32m[{name}] Result correct within threshold {diff_threshold}\033[0m")
 
 # --------------------------
 # 6. 主入口
@@ -195,7 +193,7 @@ if __name__ == "__main__":
     build_libs()
     libs = load_libs()
 
-    shape = [1, 4, 5, 6]  #[batch,n_head,seq_len,head_dim]
+    shape = [1, 1, 256, 128]  #[batch,n_head,seq_len,head_dim]
     input_tensor = np.random.rand(*shape).astype(np.float32)
 
     run_test(input_tensor, libs, repeat=50)
