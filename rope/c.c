@@ -23,8 +23,11 @@ void rope(float* input, float* output, float* rope_theta, int pos, int batch, in
                     float real = input[idx];
                     float imag = input[idx + 1];
 
-                    output[idx] = real * cos_val - imag * sin_val;     // 实部
-                    output[idx + 1] = real * sin_val + imag * cos_val; // 虚部
+                    int out_idx = b * n_head * seq_len * head_dim + i * seq_len * head_dim + j * head_dim + k/2;// 实部
+                    int out_idx_imag = b * n_head * seq_len * head_dim + i * seq_len * head_dim + j * head_dim + k/2 + head_dim/2;// 虚部
+
+                    output[out_idx] = real * cos_val - imag * sin_val;     
+                    output[out_idx_imag] = real * sin_val + imag * cos_val; 
 
                 }
             }
