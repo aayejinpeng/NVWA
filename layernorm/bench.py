@@ -38,7 +38,7 @@ def build_libs():
 # --------------------------
 ffi = FFI()
 #TODO: Update the function definitions to reflect new OPS Input,Output,dim
-ffi.cdef("void " + OPSNAME + "(float* input, float* output, float rms_epsilon, int batch, int seq_len, int hidden_dim);")
+ffi.cdef("void " + OPSNAME + "(float* input, float* output, float* per_channle_scale, float rms_epsilon, int batch, int seq_len, int hidden_dim);")
 
 def load_libs():
     libs = {}
@@ -49,11 +49,12 @@ def load_libs():
 
 #TODO: Update the function definitions to reflect new OPS Input,Output,dim
 class ops_C:
-    def __init__(self, lib, ffi, tensor, rms_epsilon=1.1920928955078125e-07): #[batch,seq_len,hidden_dim]
+    def __init__(self, lib, ffi, tensor, per_channle_scale, rms_epsilon=1.1920928955078125e-07): #[batch,seq_len,hidden_dim]
         self.lib = lib
         self.ffi = ffi
         self.tensor = tensor
         self.batch, self.seq_len, self.hidden_dim = tensor.shape
+        self.per_channle_scale = per_channle_scale
         self.rms_epsilon = rms_epsilon
         self.out = np.empty((self.batch, self.seq_len, self.hidden_dim), dtype=np.float32)
 
@@ -61,18 +62,20 @@ class ops_C:
         if x.dtype != np.float32 or not x.flags['C_CONTIGUOUS']:
             x = np.ascontiguousarray(x, dtype=np.float32)
         inp_ptr = self.ffi.cast("float*", self.ffi.from_buffer(x))
+        scale_ptr = self.ffi.cast("float*", self.ffi.from_buffer(self.per_channle_scale))
         out_ptr = self.ffi.cast("float*", self.ffi.from_buffer(self.out))
-        self.lib.__getattr__(OPSNAME)(inp_ptr, out_ptr, self.rms_epsilon, self.batch, self.seq_len, self.hidden_dim)
+        self.lib.__getattr__(OPSNAME)(inp_ptr, out_ptr, scale_ptr, self.rms_epsilon, self.batch, self.seq_len, self.hidden_dim)
         return self.out
 
 # --------------------------
 # 3. Python 实现
 # --------------------------
-def ops_python(tensor, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hidden_dim]
+def ops_python(tensor, per_channle_scale, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hidden_dim]
     """
     使用 LayerNorm 对输入张量进行归一化。
     
     :param tensor: np.ndarray, 输入张量，形状为 (batch, seq_len, hidden_dim)
+    :param per_channle_scale: np.ndarray, 每个channle的缩放因子,用于smoothquant, 形状为 (hidden_dim)
     :param rms_epsilon: float, 防止除零的微小值
     :return: np.ndarray, 归一化后的张量，形状与输入相同
     """
@@ -98,7 +101,7 @@ def ops_python(tensor, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hid
             invstd = 1.0 / math.sqrt(variance + rms_epsilon)
             
             for h in range(hidden_dim):
-                out[b, s, h] = (tensor[b, s, h] - mean) * invstd
+                out[b, s, h] = (tensor[b, s, h] - mean) * invstd * per_channle_scale[h]
     
     return out  # Updated to return the normalized output
 
@@ -108,7 +111,7 @@ def ops_python(tensor, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hid
 # --------------------------
 import numpy as np
 
-def ops_numpy(tensor, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hidden_dim]
+def ops_numpy(tensor, per_channle_scale, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hidden_dim]
     # 获取张量的形状
     batch, seq_len, hidden_dim = tensor.shape
     
@@ -123,7 +126,7 @@ def ops_numpy(tensor, rms_epsilon=1.1920928955078125e-07):  #[batch,seq_len,hidd
             variance = np.mean((tensor[b, s] - mean) ** 2)
             invstd = 1.0 / np.sqrt(variance + rms_epsilon)
             # 归一化
-            out[b, s] = (tensor[b, s] - mean) * invstd
+            out[b, s] = (tensor[b, s] - mean) * invstd * per_channle_scale
     
     return out  # Updated to return the normalized output
 
@@ -138,15 +141,15 @@ def benchmark(func, x, repeat=50):
     end = time.perf_counter()
     return (end - start) / repeat, y
 
-def run_test(input_tensor, libs, repeat=50, diff_threshold=1e-5):
+def run_test(input_tensor, per_channle_scale, libs, repeat=50, diff_threshold=1e-5):
     print(f"\n===== Benchmark =====")
 
     # Python
-    t_py, y_py = benchmark(lambda b: ops_python(b), input_tensor, repeat)
+    t_py, y_py = benchmark(lambda b: ops_python(b, per_channle_scale), input_tensor, repeat)
     print(f"[Python-native] time={t_py*1e3:.3f} ms")
 
     # NumPy
-    t_np, y_np = benchmark(lambda b: ops_numpy(b), input_tensor, repeat)
+    t_np, y_np = benchmark(lambda b: ops_numpy(b, per_channle_scale), input_tensor, repeat)
     diff_np = np.max(np.abs(y_py - y_np))
     print(f"[NumPy] time={t_np*1e3:.3f} ms  diff={diff_np:.2e}")
 
@@ -155,7 +158,7 @@ def run_test(input_tensor, libs, repeat=50, diff_threshold=1e-5):
     # C实现
     for name, lib in libs.items():
         #TODO: Update the function definitions to reflect new OPS Input,Output,dim
-        func = ops_C(lib, ffi, input_tensor)
+        func = ops_C(lib, ffi, input_tensor, per_channle_scale)
         t, y_c = benchmark(func, input_tensor, repeat)
         diff = np.max(np.abs(y_py - y_c))
         print(f"[{name}] time={t*1e3:.3f} ms  diff={diff:.2e}")
@@ -175,5 +178,6 @@ if __name__ == "__main__":
 
     shape = [1, 256, 128]   #[batch,seq_len,hidden_dim]
     input_tensor = np.random.rand(*shape).astype(np.float32)
+    per_channle_scale = np.random.rand(shape[2]).astype(np.float32)  # 每个token的缩放因子, shape=(hidden_dim)
 
-    run_test(input_tensor, libs, repeat=50)
+    run_test(input_tensor, per_channle_scale, libs, repeat=50)

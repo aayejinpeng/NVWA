@@ -45,7 +45,7 @@ for LOCAL_DIR in "${FOLDERS[@]}"; do
     LOCAL_DIR="${LOCAL_DIR%/}"
     REMOTE_DIR="$REMOTE_BASE/$LOCAL_DIR"
 
-    source ./.venv/bin/activate
+    # source ./.venv/bin/activate
 
     echo ">>> Syncing $LOCAL_DIR to $HOST:$REMOTE_DIR ..."
     rsync -avz -e "ssh -i $SSH_KEY -p $PORT" \

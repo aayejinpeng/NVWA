@@ -1,7 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 //TODO: Update the function definitions to reflect the new OPSNAME
-void LayerNorm(float* input, float* output, float rms_epsilon, int batch, int seq_len, int hidden_dim)
+void LayerNorm(float* input, float* output, float* per_channle_scale, float rms_epsilon, int batch, int seq_len, int hidden_dim)
 {
     for (int b = 0; b < batch; b++) {
         for (int j = 0; j < seq_len; j++) {
@@ -19,7 +19,7 @@ void LayerNorm(float* input, float* output, float rms_epsilon, int batch, int se
             float invstd = 1.0 / sqrt(variance + rms_epsilon);
             for (int h = 0; h < hidden_dim; h++) {
                 output[b * seq_len * hidden_dim + j * hidden_dim + h] = 
-                    (input[b * seq_len * hidden_dim + j * hidden_dim + h] - mean) * invstd;
+                    (input[b * seq_len * hidden_dim + j * hidden_dim + h] - mean) * invstd * per_channle_scale[h];
             }
         }
     }
