@@ -7,3 +7,4 @@
 initenv-remote.sh
 .log
 *.log
+*.png
