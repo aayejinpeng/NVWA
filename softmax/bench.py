@@ -134,6 +134,8 @@ if __name__ == "__main__":
     libs = load_libs()
 
     m, n = 128, 1024
-    x = np.random.rand(m, n).astype(np.float32)
+    # m, n = 128, 50
+    low, high = -10.0, 10.0
+    x = np.random.uniform(low, high, (m, n)).astype(np.float32)
 
     run_test(x, libs, repeat=50)
