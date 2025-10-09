@@ -1,4 +1,5 @@
 import os
+import platform
 import subprocess
 import time
 import numpy as np
@@ -20,12 +21,29 @@ LIB_TARGETS = {
     "C_INTR": {"src": os.path.join(OPS_DIR, "intrinsic.c"), "out": os.path.join(BUILD_DIR, "libops_intr.so"), "flags": "-O3"},
 }
 
+def get_architecture():
+    """检测当前系统架构"""
+    arch = platform.machine().lower()
+    if arch in ['riscv64', 'riscv32', 'riscv']:
+        return 'riscv'
+    if arch in ['x86_64', 'amd64', 'i386', 'i686', 'x86']:
+        return 'x86'
+    if arch in ['aarch64', 'arm64', 'armv7l', 'armv6l']:
+        return 'arm'
+    
+    return arch
+
 def build_libs():
     for name, cfg in LIB_TARGETS.items():
         if not os.path.isfile(cfg["src"]):
             print(f"[{name}] SKIP (no source: {cfg['src']})")
             continue
-        cmd = f"gcc {cfg['flags']} -fPIC -shared -o {cfg['out']} {cfg['src']} -lm"
+        arch = get_architecture()
+        if arch != 'riscv':
+            cmd = f"gcc {cfg['flags']} -fPIC -shared -o {cfg['out']} {cfg['src']}"
+        else:
+            cmd = f"gcc {cfg['flags']} -fPIC -shared -march=rv64gcv -o {cfg['out']} {cfg['src']}"
+        cmd += " -lm"
         print(f"[{name}] Building: {cmd}")
         subprocess.run(cmd, shell=True, check=True)
         print(f"[{name}] -> {cfg['out']}")
@@ -117,6 +135,8 @@ if __name__ == "__main__":
     libs = load_libs()
 
     m, n = 128, 1024
-    x = np.random.rand(m, n).astype(np.float32)
+    # m, n = 128, 50
+    low, high = -10.0, 10.0
+    x = np.random.uniform(low, high, (m, n)).astype(np.float32)
 
     run_test(x, libs, repeat=50)
