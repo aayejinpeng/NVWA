@@ -6,12 +6,12 @@
 
 inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // 常数定义
-    const float neg_ln2 = -0.69314718056f;
-    const float inv_ln2 = 1.44269504089f;
+    const float NEG_LN2 = -0.69314718056f;
+    const float INV_LN2 = 1.44269504089f;
 
 
     // 计算 nr = round(x / ln2)
-    vfloat32m4_t nf = __riscv_vfmul_vf_f32m4(x, inv_ln2, vl);
+    vfloat32m4_t nf = __riscv_vfmul_vf_f32m4(x, INV_LN2, vl);
     vfloat32m4_t r = __riscv_vfmv_v_f_f32m4(0x1.8p23f, vl); // 2²³ + 2²²，用于取整
     vfloat32m4_t nr = __riscv_vfadd_vv_f32m4(nf, r, vl);
     nr = __riscv_vfsub_vv_f32m4(nr, r, vl);
@@ -24,7 +24,7 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
 
     // 计算 b = x - nr * ln2
     // res = a2 * a3 + a1
-    vfloat32m4_t b = __riscv_vfmacc_vf_f32m4(x, neg_ln2, nr, vl);
+    vfloat32m4_t b = __riscv_vfmacc_vf_f32m4(x, NEG_LN2, nr, vl);
 
     // 计算 eᵇ
     // 泰勒展开多项式系数
