@@ -91,9 +91,7 @@ inline vfloat32m4_t vec_tanh(vfloat32m4_t x, size_t vl) {
 void GeLu(float* input, float* output, int batch, int exhidden_dim, int hidden_dim)
 {
     static const float GELU_COEF_A     = 0.044715f;
-    static const float GELU_QUICK_COEF = -1.702f;
     static const float SQRT_2_OVER_PI  = 0.79788456080286535587989211986876f;
-    static const float SQRT_2_INV      = 0.70710678118654752440084436210484f;
     size_t avl, vl;
     size_t vl_0 = __riscv_vsetvl_e32m4(hidden_dim);
     for (int b = 0; b < batch; b++) {
