@@ -54,7 +54,7 @@ for LOCAL_DIR in "${FOLDERS[@]}"; do
         "$LOCAL_DIR/" "$USER@$HOST:$REMOTE_DIR/"
 
     echo ">>> Executing bench.py in $REMOTE_DIR ..."
-    ssh -i "$SSH_KEY" -p "$PORT" "$USER@$HOST" <<EOF | tee -a "$LOG_FILE"
+    ssh -i "$SSH_KEY" -p "$PORT" "$USER@$HOST" 2>&1 <<EOF | tee -a "$LOG_FILE"
 cd $REMOTE_DIR || exit 1
 source ../.venv/bin/activate || exit 1
 python3 bench.py || exit 1

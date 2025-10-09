@@ -3,6 +3,7 @@ import subprocess
 import time
 import numpy as np
 from cffi import FFI
+import platform
 import random
 import math
 
@@ -23,12 +24,29 @@ LIB_TARGETS = {
     "C_INTR": {"src": os.path.join(OPS_DIR, "intrinsic.c"), "out": os.path.join(BUILD_DIR, "libops_intr.so"), "flags": "-O3"},
 }
 
+def get_architecture():
+    """检测当前系统架构"""
+    arch = platform.machine().lower()
+    if arch in ['riscv64', 'riscv32', 'riscv']:
+        return 'riscv'
+    if arch in ['x86_64', 'amd64', 'i386', 'i686', 'x86']:
+        return 'x86'
+    if arch in ['aarch64', 'arm64', 'armv7l', 'armv6l']:
+        return 'arm'
+    
+    return arch
+
 def build_libs():
     for name, cfg in LIB_TARGETS.items():
         if not os.path.isfile(cfg["src"]):
             print(f"[{name}] SKIP (no source: {cfg['src']})")
             continue
-        cmd = f"gcc {cfg['flags']} -fPIC -shared -o {cfg['out']} {cfg['src']} -lm"
+        arch = get_architecture()
+        if arch != 'riscv':
+            cmd = f"gcc {cfg['flags']} -fPIC -shared -o {cfg['out']} {cfg['src']}"
+        else:
+            cmd = f"gcc {cfg['flags']} -fPIC -shared -march=rv64gcv -mabi=lp64d -o {cfg['out']} {cfg['src']}"
+        cmd += " -lm"
         print(f"[{name}] Building: {cmd}")
         subprocess.run(cmd, shell=True, check=True)
         print(f"[{name}] -> {cfg['out']}")
@@ -106,7 +124,7 @@ import numpy as np
 
 
 
-#w8a8matmul_smoothquant02,A是在线量化得到的
+#w8a8matmul_smoothquant01,A是在线量化得到的
 def ops_numpy(A,B,scale_B):  #[M,K],[N,K],[1]
     
     assert A.dtype == np.float32 and B.dtype == np.int8
@@ -189,7 +207,7 @@ if __name__ == "__main__":
     libs = load_libs()
 
     #A[M,K],B[N,K],scale_A[1],scale_B[1]
-    M = N = K = 4
+    M = N = K = 256
     A = (np.random.rand(M, K).astype(np.float32) - np.random.rand(M, K).astype(np.float32)) * 1000
     B = np.random.randint(-128, 127, size=(N, K), dtype=np.int8)
     # A_scale = np.random.rand(1).astype(np.float32) * 1
