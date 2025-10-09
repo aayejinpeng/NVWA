@@ -8,7 +8,6 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // 常数定义
     const float neg_ln2 = -0.69314718056f;
     const float inv_ln2 = 1.44269504089f;
-    const float log2e = 1.44269504089f;
 
 
     // 计算 nr = round(x / ln2)
@@ -51,7 +50,6 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
 
 void softmax(float* x, float* y, int M, int N) {
     // printf("RISC-V specific implementation WORK IN PROGRESS\n");
-    float max_row[M];
     for (int i = 0; i < M; i++) {
         float* row_x = &x[i * N];
         float* row_y = &y[i * N];
@@ -59,7 +57,7 @@ void softmax(float* x, float* y, int M, int N) {
         size_t vl_0 = __riscv_vsetvl_e32m4(N);
         // 第二步：计算指数和求和
         float sum_exp = 0.0f;
-        vfloat32m4_t sumexp_vec = __riscv_vfmv_v_f_f32m4(0.0f, vl);
+        vfloat32m4_t sumexp_vec = __riscv_vfmv_v_f_f32m4(0.0f, vl_0);
         // 向量化计算指数和求和
         for (int j = 0, avl = N; avl > 0; j += vl, avl -= vl) {
             vl = __riscv_vsetvl_e32m4(avl);

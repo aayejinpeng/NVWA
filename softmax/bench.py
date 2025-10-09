@@ -40,9 +40,10 @@ def build_libs():
             continue
         arch = get_architecture()
         if arch != 'riscv':
-            cmd = f"gcc {cfg['flags']} -fPIC -shared -o {cfg['out']} {cfg['src']} -lm"
+            cmd = f"gcc {cfg['flags']} -fPIC -shared -o {cfg['out']} {cfg['src']}"
         else:
-            cmd = f"gcc {cfg['flags']} -fPIC -shared -march=rv64gcv -o {cfg['out']} {cfg['src']} -lm"
+            cmd = f"gcc {cfg['flags']} -fPIC -shared -march=rv64gcv -o {cfg['out']} {cfg['src']}"
+        cmd += " -lm"
         print(f"[{name}] Building: {cmd}")
         subprocess.run(cmd, shell=True, check=True)
         print(f"[{name}] -> {cfg['out']}")
