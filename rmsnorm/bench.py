@@ -184,6 +184,6 @@ if __name__ == "__main__":
     libs = load_libs()
 
     shape = [1, 256, 128]   #[batch,seq_len,hidden_dim]
-    input_tensor = np.random.rand(*shape).astype(np.float32)
+    input_tensor = np.random.rand(*shape).astype(np.float32) * 1000
     per_channle_scale = np.random.rand(shape[2]).astype(np.float32)  # 每个channle的缩放因子,用于smoothquant
     run_test(input_tensor, per_channle_scale, libs, repeat=50)
