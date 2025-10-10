@@ -6,9 +6,9 @@
 #include <assert.h>
 #include <riscv_vector.h>
 //TODO: Update the function definitions to reflect the new OPSNAME
-float w8a8matmul_smoothquant01_scalebuf[1024] __attribute__((aligned(32)));
-int8_t w8a8matmul_smoothquant01_qA[32768*1024] __attribute__((aligned(32)));
-float tmp_f[128] __attribute__((aligned(32)));
+float w8a8matmul_smoothquant01_scalebuf[1024] __attribute__((aligned(64)));
+int8_t w8a8matmul_smoothquant01_qA[32768*1024] __attribute__((aligned(64)));
+float tmp_f[128] __attribute__((aligned(64)));
 void smoothquant01(float* A, int8_t* B, float* B_scale, float* output, int M, int N,int K)
 {
 
