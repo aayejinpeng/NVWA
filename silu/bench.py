@@ -21,7 +21,7 @@ os.makedirs(BUILD_DIR, exist_ok=True)
 LIB_TARGETS = {
     "C_O0": {"src": os.path.join(OPS_DIR, "c.c"), "out": os.path.join(BUILD_DIR, "libops_o0.so"), "flags": "-O0"},
     "C_O3": {"src": os.path.join(OPS_DIR, "c.c"), "out": os.path.join(BUILD_DIR, "libops_o3.so"), "flags": "-O3"},
-    "C_INTR": {"src": os.path.join(OPS_DIR, "intrinsic.c"), "out": os.path.join(BUILD_DIR, "libops_intr.so"), "flags": "-O3 -mavx2 -mfma"},
+    "C_INTR": {"src": os.path.join(OPS_DIR, "intrinsic.c"), "out": os.path.join(BUILD_DIR, "libops_intr.so"), "flags": "-O3"},
 }
 
 def get_architecture():
@@ -165,5 +165,6 @@ if __name__ == "__main__":
     libs = load_libs()
 
     shape = [1, 256, 128]   #[batch,seq_len,hidden_dim]
-    input_tensor = np.random.rand(*shape).astype(np.float32)
+    # input_tensor = np.random.rand(*shape).astype(np.float32)
+    input_tensor = np.random.uniform(-100, 100, size=shape).astype(np.float32)
     run_test(input_tensor, libs, repeat=50)
