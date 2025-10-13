@@ -3,7 +3,6 @@
 
 #if defined(__riscv)// RISC-V 架构
 #include <riscv_vector.h>
-#include <stdbool.h> 
 
 inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // x = ln2 * a + b, 其中 b ∈ [0, ±ln2]
@@ -14,12 +13,6 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     const int32_t MAX_A = 127; // 防止指数溢出
     const int32_t MIN_A = -126; // 防止指数下溢
 
-    // 处理特殊值
-    vbool8_t mask_nan = __riscv_vmfne_vv_f32m4_b8(x, x, vl); // NaN != NaN
-    vbool8_t mask_inf = __riscv_vmfeq_vf_f32m4_b8(x, INFINITY, vl); // 检测 +inf
-    vbool8_t mask_ninf = __riscv_vmfeq_vf_f32m4_b8(x, -INFINITY, vl); // 检测 -inf
-    vbool8_t mask_special = __riscv_vmor_mm_b8(mask_nan, __riscv_vmor_mm_b8(mask_inf, mask_ninf, vl), vl);
-
     // 计算 a = round(x / ln2)
     vfloat32m4_t af = __riscv_vfmul_vf_f32m4(x, INV_LN2, vl);
     vfloat32m4_t r = __riscv_vfmv_v_f_f32m4(0x1.8p23f, vl); // 2²³ + 2²²，用于取整
@@ -29,7 +22,6 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // 处理 a 的边界情况
     vbool8_t mask_max = __riscv_vmsgt_vx_i32m4_b8(a_int, MAX_A, vl);    // res[i] = op1[i] > op2
     vbool8_t mask_min = __riscv_vmslt_vx_i32m4_b8(a_int, MIN_A, vl);    // res[i] = op1[i] < op2
-    vbool8_t mask_exceed = __riscv_vmor_mm_b8(mask_max, mask_min, vl);
 
     // 计算 2ᵃ
     vint32m4_t biased_exponent = __riscv_vadd_vx_i32m4(a_int, 127, vl); // 加上偏置127
@@ -62,28 +54,14 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // 计算 2ᵃ * eᵇ
     p = __riscv_vfmul_vv_f32m4(a2, p, vl);
 
-    if (__riscv_vcpop_m_b8(mask_special, vl) == 0 && __riscv_vcpop_m_b8(mask_exceed, vl) == 0) {
-        return p; // 如果没有特殊值和越界值，直接返回结果
-    }
-    // 处理越界情况
-    if (__riscv_vcpop_m_b8(mask_exceed, vl) > 0) {
-        // mask[i] ? op2[i] : op1[i]
-        p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_max, vl);
-        p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_min, vl);
-    }
-
-    if (__riscv_vcpop_m_b8(mask_special, vl) == 0) {
-        return p; // 如果没有特殊值，直接返回结果
-    }
-
-    // 处理特殊值
-    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(NAN, vl), mask_nan, vl);
-    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_inf, vl);
-    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_ninf, vl);
+    // 处理边界情况
+    // mask[i] ? op2[i] : op1[i]
+    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_max, vl);
+    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_min, vl);
     return p;
 }
 
-void softmax(float* x, float* y, void* bitmask_ptr, int M, int N) {
+void softmax(float* x, float* y, int M, int N) {
     // printf("RISC-V specific implementation WORK IN PROGRESS\n");
     for (int i = 0; i < M; i++) {
         float* row_x = &x[i * N];
@@ -96,9 +74,6 @@ void softmax(float* x, float* y, void* bitmask_ptr, int M, int N) {
         for (int j = 0, avl = N; avl > 0; j += vl, avl -= vl) {
             vl = __riscv_vsetvl_e32m4(avl);
             vfloat32m4_t vec = __riscv_vle32_v_f32m4(&row_x[j], vl);
-            vbool8_t mask = __riscv_vlm_v_b8((uint8_t*)(bitmask_ptr + (i * N + j)/8), vl);
-            // mask[i] ? op2[i] : op1[i]
-            vec = __riscv_vmerge_vvm_f32m4(__riscv_vfmv_v_f_f32m4(-INFINITY, vl), vec, mask, vl);
             max_vec = __riscv_vfmax_vv_f32m4(max_vec, vec, vl);
         }
         max_val = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m4_f32m1(max_vec, __riscv_vfmv_v_f_f32m1(-INFINITY, vl_0), vl_0));
@@ -110,11 +85,6 @@ void softmax(float* x, float* y, void* bitmask_ptr, int M, int N) {
             vl = __riscv_vsetvl_e32m4(avl);
             vfloat32m4_t vec = __riscv_vle32_v_f32m4(&row_x[j], vl);
             vec = __riscv_vfsub_vf_f32m4(vec, max_val, vl); // 减去最大值
-
-            // 应用掩码
-            vbool8_t mask = __riscv_vlm_v_b8((uint8_t*)(bitmask_ptr + (i * N + j)/8), vl);
-            vec = __riscv_vmerge_vvm_f32m4(__riscv_vfmv_v_f_f32m4(-INFINITY, vl), vec, mask, vl);
-
             // 计算 exp(x)
             vfloat32m4_t exp_vec = vec_exp(vec, vl);
             
