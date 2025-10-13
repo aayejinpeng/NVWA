@@ -5,6 +5,84 @@
 #include <riscv_vector.h>
 #include <stdbool.h> 
 
+// inline vfloat32m4_t vec_exp_complete(vfloat32m4_t x, size_t vl) {
+//     // x = ln2 * a + b, 其中 b ∈ [0, ±ln2]
+//     // eˣ = 2ᵃ * eᵇ
+//     // 常数定义
+//     const float NEG_LN2 = -0.69314718056f;
+//     const float INV_LN2 = 1.44269504089f;
+//     const int32_t MAX_A = 127; // 防止指数溢出
+//     const int32_t MIN_A = -126; // 防止指数下溢
+
+//     // 处理特殊值
+//     vbool8_t mask_nan = __riscv_vmfne_vv_f32m4_b8(x, x, vl); // NaN != NaN
+//     vbool8_t mask_inf = __riscv_vmfeq_vf_f32m4_b8(x, INFINITY, vl); // 检测 +inf
+//     vbool8_t mask_ninf = __riscv_vmfeq_vf_f32m4_b8(x, -INFINITY, vl); // 检测 -inf
+//     vbool8_t mask_special = __riscv_vmor_mm_b8(mask_nan, __riscv_vmor_mm_b8(mask_inf, mask_ninf, vl), vl);
+
+//     // 计算 a = round(x / ln2)
+//     vfloat32m4_t af = __riscv_vfmul_vf_f32m4(x, INV_LN2, vl);
+//     vfloat32m4_t r = __riscv_vfmv_v_f_f32m4(0x1.8p23f, vl); // 2²³ + 2²²，用于取整
+//     vfloat32m4_t a = __riscv_vfadd_vv_f32m4(af, r, vl);
+//     a = __riscv_vfsub_vv_f32m4(a, r, vl);
+//     vint32m4_t a_int = __riscv_vfcvt_x_f_v_i32m4(a, vl);
+//     // 处理 a 的边界情况
+//     vbool8_t mask_max = __riscv_vmsgt_vx_i32m4_b8(a_int, MAX_A, vl);    // res[i] = op1[i] > op2
+//     vbool8_t mask_min = __riscv_vmslt_vx_i32m4_b8(a_int, MIN_A, vl);    // res[i] = op1[i] < op2
+//     vbool8_t mask_exceed = __riscv_vmor_mm_b8(mask_max, mask_min, vl);
+
+//     // 计算 2ᵃ
+//     vint32m4_t biased_exponent = __riscv_vadd_vx_i32m4(a_int, 127, vl); // 加上偏置127
+//     biased_exponent = __riscv_vsll_vx_i32m4(biased_exponent, 23, vl); // 左移23位
+//     vfloat32m4_t a2 = __riscv_vreinterpret_v_i32m4_f32m4(biased_exponent); // 视为浮点数
+
+//     // 计算 b = x - a * ln2
+//     // res = a2 * a3 + a1
+//     vfloat32m4_t b = __riscv_vfmacc_vf_f32m4(x, NEG_LN2, a, vl);
+
+//     // 计算 eᵇ
+//     // 泰勒展开多项式系数
+//     vfloat32m4_t c0 = __riscv_vfmv_v_f_f32m4(1.0f, vl);
+//     vfloat32m4_t c1 = __riscv_vfmv_v_f_f32m4(1.0f, vl);
+//     vfloat32m4_t c2 = __riscv_vfmv_v_f_f32m4(0.5f, vl);
+//     vfloat32m4_t c3 = __riscv_vfmv_v_f_f32m4(0.166666666667f, vl);
+//     vfloat32m4_t c4 = __riscv_vfmv_v_f_f32m4(0.041666666667f, vl);
+//     vfloat32m4_t c5 = __riscv_vfmv_v_f_f32m4(0.008333333333f, vl);
+//     vfloat32m4_t c6 = __riscv_vfmv_v_f_f32m4(0.001388888889f, vl);
+//     vfloat32m4_t  p;
+//     // exp(b) ≈ c₀ + b * (c₁ + b * (c₂ + b * (c₃ + b * (c₄ + b * (c₅ + b * c₆)))))
+//     // res = a1 + a2 * a3
+//     p = __riscv_vfmacc_vv_f32m4(c5, c6, b, vl);
+//     p = __riscv_vfmacc_vv_f32m4(c4,  p, b, vl);
+//     p = __riscv_vfmacc_vv_f32m4(c3,  p, b, vl);
+//     p = __riscv_vfmacc_vv_f32m4(c2,  p, b, vl);
+//     p = __riscv_vfmacc_vv_f32m4(c1,  p, b, vl);
+//     p = __riscv_vfmacc_vv_f32m4(c0,  p, b, vl);
+    
+//     // 计算 2ᵃ * eᵇ
+//     p = __riscv_vfmul_vv_f32m4(a2, p, vl);
+
+//     if (__riscv_vcpop_m_b8(mask_special, vl) == 0 && __riscv_vcpop_m_b8(mask_exceed, vl) == 0) {
+//         return p; // 如果没有特殊值和越界值，直接返回结果
+//     }
+//     // 处理越界情况
+//     if (__riscv_vcpop_m_b8(mask_exceed, vl) > 0) {
+//         // mask[i] ? op2[i] : op1[i]
+//         p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_max, vl);
+//         p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_min, vl);
+//     }
+
+//     if (__riscv_vcpop_m_b8(mask_special, vl) == 0) {
+//         return p; // 如果没有特殊值，直接返回结果
+//     }
+
+//     // 处理特殊值
+//     p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(NAN, vl), mask_nan, vl);
+//     p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_inf, vl);
+//     p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_ninf, vl);
+//     return p;
+// }
+
 inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // x = ln2 * a + b, 其中 b ∈ [0, ±ln2]
     // eˣ = 2ᵃ * eᵇ
@@ -13,12 +91,6 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     const float INV_LN2 = 1.44269504089f;
     const int32_t MAX_A = 127; // 防止指数溢出
     const int32_t MIN_A = -126; // 防止指数下溢
-
-    // 处理特殊值
-    vbool8_t mask_nan = __riscv_vmfne_vv_f32m4_b8(x, x, vl); // NaN != NaN
-    vbool8_t mask_inf = __riscv_vmfeq_vf_f32m4_b8(x, INFINITY, vl); // 检测 +inf
-    vbool8_t mask_ninf = __riscv_vmfeq_vf_f32m4_b8(x, -INFINITY, vl); // 检测 -inf
-    vbool8_t mask_special = __riscv_vmor_mm_b8(mask_nan, __riscv_vmor_mm_b8(mask_inf, mask_ninf, vl), vl);
 
     // 计算 a = round(x / ln2)
     vfloat32m4_t af = __riscv_vfmul_vf_f32m4(x, INV_LN2, vl);
@@ -29,7 +101,6 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // 处理 a 的边界情况
     vbool8_t mask_max = __riscv_vmsgt_vx_i32m4_b8(a_int, MAX_A, vl);    // res[i] = op1[i] > op2
     vbool8_t mask_min = __riscv_vmslt_vx_i32m4_b8(a_int, MIN_A, vl);    // res[i] = op1[i] < op2
-    vbool8_t mask_exceed = __riscv_vmor_mm_b8(mask_max, mask_min, vl);
 
     // 计算 2ᵃ
     vint32m4_t biased_exponent = __riscv_vadd_vx_i32m4(a_int, 127, vl); // 加上偏置127
@@ -62,24 +133,10 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // 计算 2ᵃ * eᵇ
     p = __riscv_vfmul_vv_f32m4(a2, p, vl);
 
-    if (__riscv_vcpop_m_b8(mask_special, vl) == 0 && __riscv_vcpop_m_b8(mask_exceed, vl) == 0) {
-        return p; // 如果没有特殊值和越界值，直接返回结果
-    }
-    // 处理越界情况
-    if (__riscv_vcpop_m_b8(mask_exceed, vl) > 0) {
-        // mask[i] ? op2[i] : op1[i]
-        p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_max, vl);
-        p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_min, vl);
-    }
-
-    if (__riscv_vcpop_m_b8(mask_special, vl) == 0) {
-        return p; // 如果没有特殊值，直接返回结果
-    }
-
-    // 处理特殊值
-    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(NAN, vl), mask_nan, vl);
-    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_inf, vl);
-    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_ninf, vl);
+    // 处理边界情况
+    // mask[i] ? op2[i] : op1[i]
+    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(INFINITY, vl), mask_max, vl);
+    p = __riscv_vmerge_vvm_f32m4(p, __riscv_vfmv_v_f_f32m4(0.0f, vl), mask_min, vl);
     return p;
 }
 
@@ -113,7 +170,8 @@ void softmax(float* x, float* y, void* bitmask_ptr, int M, int N) {
 
             // 应用掩码
             vbool8_t mask = __riscv_vlm_v_b8((uint8_t*)(bitmask_ptr + (i * N + j)/8), vl);
-            vec = __riscv_vmerge_vvm_f32m4(__riscv_vfmv_v_f_f32m4(-INFINITY, vl), vec, mask, vl);
+            // vec = __riscv_vmerge_vvm_f32m4(__riscv_vfmv_v_f_f32m4(-INFINITY, vl), vec, mask, vl);
+            vec = __riscv_vmerge_vvm_f32m4(__riscv_vfmv_v_f_f32m4(-90, vl), vec, mask, vl);
 
             // 计算 exp(x)
             vfloat32m4_t exp_vec = vec_exp(vec, vl);
