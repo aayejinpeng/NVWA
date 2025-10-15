@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -5,10 +6,21 @@
 #include <stdint.h>
 #include <limits.h>
 #include <stdlib.h>
-#include "cuteMarcoinstHelper.h"
+// #include "cuteMarcoinstHelper.h"
 #include <riscv_vector.h>
 #include <assert.h>
 #include "gloden_opt.h"
+
+#define CUTEDataTypeI8I8I32     0     //I8 * I8 * I32
+#define CUTEDataTypeF16F16F32   1     //FP16 * FP16 * FP32
+#define CUTEDataTypeBF16BF16F32 2     //BF16 * BF16 * FP32
+#define CUTEDataTypeTF32TF32F32 3     //TF32 * TF32 * FP32
+#define CUTEDataTypeI8U8I32     4     //I8 * UI8 * I32
+#define CUTEDataTypeU8I8I32     5     //U8 * I8 * I32
+#define CUTEDataTypeU8U8I32     6     //U8 * U8 * I32
+#define CUTEDataTypee4m3F32     7
+
+#define TaskTypeTensorZeroLoad 0
 
 #define LAYEROPT 2048
 #define FUSEOPT 1024
@@ -51,11 +63,11 @@
 #define SQRT_KEY_DIMENSION 8.0
 #define INV_SQRT_KEY_DIMENSION 0.125
 
-static inline float fast_sqrt(float x) {
-    float result;
-    __asm__ volatile ("fsqrt.s %0, %1" : "=f"(result) : "f"(x));
-    return result;
-}
+// static inline float fast_sqrt(float x) {
+//     float result;
+//     __asm__ volatile ("fsqrt.s %0, %1" : "=f"(result) : "f"(x));
+//     return result;
+// }
 // typedef __int16_t _Float16;
 
 static float rope_theta[KEY_DIMENSION/2] __attribute__((aligned(64))) = {1.0000e+00, 6.6360e-01, 4.4037e-01, 2.9223e-01, 1.9392e-01, 1.2869e-01,
@@ -131,8 +143,9 @@ static float* gloden_hidden_states_output= gloden_identity;
 static float*  gloden_proj_o_buf_f32 = gloden_identity;
 static float* gloden_ffn_up_buf_f32 = gloden_ffn_gate_buf_f32;
 static float gloden_TCM_buffer[1024*1024*2] __attribute__((aligned(64))) = {0};
-
-
+static float tmpbuffer0[2048*8192] __attribute__((aligned(64))); 
+static float tmpbuffer1[2048*8192] __attribute__((aligned(64))); 
+static float tmpbuffer2[2048*8192] __attribute__((aligned(64))); 
 
 
 #include <math.h>
@@ -281,8 +294,8 @@ void fuse_ops_DEQUANT_ROPE_BF16CVRT(void * input,void *output,void * input_scale
             // 存储结果
 
             // 转化为fp16再存储
-            vfloat16m2_t real_out_fp16 = __riscv_vfncvt_rod_f_f_w_f16m2(real_out, vl);
-            vfloat16m2_t imag_out_fp16 = __riscv_vfncvt_rod_f_f_w_f16m2(imag_out, vl);
+            vfloat16m2_t real_out_fp16 = __riscv_vfncvt_f_f_w_f16m2(real_out, vl);
+            vfloat16m2_t imag_out_fp16 = __riscv_vfncvt_f_f_w_f16m2(imag_out, vl);
             __riscv_vse16_v_f16m2(output_row + k, real_out_fp16, vl);
             __riscv_vse16_v_f16m2(output_row + half_dim + k, imag_out_fp16, vl);
         }
@@ -322,7 +335,7 @@ void fuse_ops_DEQUANT_BF16CVRT(void * input,void *output,void * input_scale,void
 
             vfloat32m4_t deq_done = __riscv_vfmul_vf_f32m4(__riscv_vfcvt_f_x_v_f32m4(input_vec, vl), scale, vl);
 
-            vfloat16m2_t deq_done_fp16 = __riscv_vfncvt_rod_f_f_w_f16m2(deq_done, vl);
+            vfloat16m2_t deq_done_fp16 = __riscv_vfncvt_f_f_w_f16m2(deq_done, vl);
             __riscv_vse16_v_f16m2(output_row + k, deq_done_fp16, vl);
         }
     }
@@ -443,7 +456,7 @@ inline void softmax_cvrtfp16(void* x, void* y, void* bitmask_ptr, int M, int N,u
             vl = __riscv_vsetvl_e32m4(avl);
             vfloat32m4_t vec = __riscv_vle32_v_f32m4(&input_row_f32[j], vl);
             vfloat32m4_t normalized = __riscv_vfmul_vv_f32m4(vec, inv_sum_exp_vec, vl);
-            vfloat16m2_t normalized_fp16 = __riscv_vfncvt_rod_f_f_w_f16m2(normalized, vl);
+            vfloat16m2_t normalized_fp16 = __riscv_vfncvt_f_f_w_f16m2(normalized, vl);
             __riscv_vse16_v_f16m2((_Float16*)&output_row_f16[j], normalized_fp16, vl);
         }
     }
@@ -1037,6 +1050,42 @@ void RMSnorm_With_getabsmax_scale(float* input, float* output, float* per_channl
     }
 }
 
+void reshape_to_head(float* input, float* output, int seq_len, int num_heads, int head_size) 
+{
+    //seq_len,numheads,head_size -> numheads,seq_len,head_size
+    for (int i = 0; i < seq_len; i++) {
+        for (int j = 0; j < num_heads; j++) {
+            for (int k = 0; k < head_size; k++) {
+                output[j * seq_len * head_size + i * head_size + k] = input[i * num_heads * head_size + j * head_size + k];
+            }
+        }
+    }
+}
+
+void reshape_to_headf16(uint16_t* input, uint16_t* output, int seq_len, int num_heads, int head_size) 
+{
+    //seq_len,numheads,head_size -> numheads,seq_len,head_size
+    for (int i = 0; i < seq_len; i++) {
+        for (int j = 0; j < num_heads; j++) {
+            for (int k = 0; k < head_size; k++) {
+                output[j * seq_len * head_size + i * head_size + k] = input[i * num_heads * head_size + j * head_size + k];
+            }
+        }
+    }
+}
+
+void reshape_to_seq(float* input, float* output, int seq_len, int num_heads, int head_size) 
+{
+    //numheads,seq_len,head_size --> seq_len,numheads,head_size
+    for (int i = 0; i < num_heads; i++) {
+        for (int j = 0; j < seq_len; j++) {
+            for (int k = 0; k < head_size; k++) {
+                output[j * num_heads * head_size + i * head_size + k] = input[i * seq_len * head_size + j * head_size + k];
+            }
+        }
+    }
+}
+
 
 uint64_t llama_block(
         int input_size, int d, int dk, int dv, int head_q, int head_kv, int dffn,
@@ -1055,10 +1104,15 @@ uint64_t llama_block(
     smoothquant(TCM_BUFF,SEQ_LEN, EMBEDING_DIMENSION,hidden_states_buf_q8_after_pre_rmsnorm, hidden_states_buf_q8_after_pre_rmsnorm_scale, false);
 
     __gloden_RMSnorm(gloden_identity,gloden_TCM_buffer,attn_norm_weight,RMS_EPSILON,1,SEQ_LEN,EMBEDING_DIMENSION);
-    __gloden_smoothquantO1(TCM_BUFF,gloden_hidden_states_buf_q8_after_pre_rmsnorm,gloden_hidden_states_buf_q8_after_pre_rmsnorm_scale,SEQ_LEN,EMBEDING_DIMENSION);
+    __gloden_smoothquantO1(gloden_TCM_buffer,gloden_hidden_states_buf_q8_after_pre_rmsnorm,gloden_hidden_states_buf_q8_after_pre_rmsnorm_scale,SEQ_LEN,EMBEDING_DIMENSION);
 
-    //check
-    for()
+    printf("check pre_rmsnorm and smoothquant:\n");
+    int res = check_diff_byte(hidden_states_buf_q8_after_pre_rmsnorm,gloden_hidden_states_buf_q8_after_pre_rmsnorm,SEQ_LEN*EMBEDING_DIMENSION);
+    if(res)
+    {
+        printf("\033[31mpre_rmsnorm and smoothquant have diff\033[0m\n");
+        exit(-1);
+    }
 
     //proj_q
     matmul_cute(SEQ_LEN, EMBEDING_DIMENSION, EMBEDING_DIMENSION,
@@ -1066,12 +1120,41 @@ uint64_t llama_block(
         hidden_states_buf_q8_after_pre_rmsnorm_scale,proj_q_scale,SCALE_TYPE_PERTOKEN_A_PERTENSOR_B,
         EMBEDING_DIMENSION, EMBEDING_DIMENSION, EMBEDING_DIMENSION * 2,//bf16
         CUTEDataTypeI8I8I32,FUSE_DEQUANT_ROPE_BF16CVRT,0);
+
+    __gloden_Q_matmul_I8I8I32_pertoken_pertensor(hidden_states_buf_q8_after_pre_rmsnorm,proj_q_weight,hidden_states_buf_q8_after_pre_rmsnorm_scale,proj_q_scale,tmpbuffer1,SEQ_LEN,EMBEDING_DIMENSION,EMBEDING_DIMENSION);
+    reshape_to_head(tmpbuffer1,tmpbuffer0,SEQ_LEN,N_HEAD_Q,KEY_DIMENSION);
+    __gloden_rope(tmpbuffer0,tmpbuffer1,rope_theta,0,1,N_HEAD_Q,SEQ_LEN,KEY_DIMENSION);
+    reshape_to_seq(tmpbuffer1,tmpbuffer0,SEQ_LEN,N_HEAD_Q,KEY_DIMENSION);
+    __gloden_cvrtfp16(tmpbuffer0,gloden_proj_q_buf_q16,SEQ_LEN,EMBEDING_DIMENSION);
+    printf("check proj_q with FUSE_DEQUANT_ROPE_BF16CVRT:\n");
+    res = check_diff_byte(proj_q_buf_q16,gloden_proj_q_buf_q16,SEQ_LEN*EMBEDING_DIMENSION);
+    if(res)
+    {
+        printf("\033[31mproj_q with FUSE_DEQUANT_ROPE_BF16CVRT have diff\033[0m\n");
+        exit(-1);
+    }
+    
+
+    
     //proj_k
     matmul_cute(SEQ_LEN, EMBEDING_DIMENSION / 4, EMBEDING_DIMENSION,
         hidden_states_buf_q8_after_pre_rmsnorm, proj_k_weight, proj_k_buf_q16, NULL,NULL,
         hidden_states_buf_q8_after_pre_rmsnorm_scale,proj_k_scale,SCALE_TYPE_PERTOKEN_A_PERTENSOR_B,
         EMBEDING_DIMENSION, EMBEDING_DIMENSION, EMBEDING_DIMENSION / 4 * 2,//bf16
         CUTEDataTypeI8I8I32,FUSE_DEQUANT_ROPE_BF16CVRT,0);
+    
+    __gloden_Q_matmul_I8I8I32_pertoken_pertensor(hidden_states_buf_q8_after_pre_rmsnorm,proj_k_weight,hidden_states_buf_q8_after_pre_rmsnorm_scale,proj_k_scale,tmpbuffer1,SEQ_LEN,EMBEDING_DIMENSION/4,EMBEDING_DIMENSION);
+    reshape_to_head(tmpbuffer1,tmpbuffer0,SEQ_LEN,N_HEAD_KV,KEY_DIMENSION);
+    __gloden_rope(tmpbuffer0,tmpbuffer1,rope_theta,0,1,N_HEAD_KV,SEQ_LEN,KEY_DIMENSION);
+    reshape_to_seq(tmpbuffer1,tmpbuffer0,SEQ_LEN,N_HEAD_KV,KEY_DIMENSION);
+    __gloden_cvrtfp16(tmpbuffer0,gloden_proj_k_buf_q16,SEQ_LEN,EMBEDING_DIMENSION/4);
+    printf("check proj_k with FUSE_DEQUANT_ROPE_BF16CVRT:\n");
+    res = check_diff_byte(proj_k_buf_q16,gloden_proj_k_buf_q16,SEQ_LEN*EMBEDING_DIMENSION/4);
+    if(res)
+    {
+        printf("\033[31mproj_k with FUSE_DEQUANT_ROPE_BF16CVRT have diff\033[0m\n");
+        exit(-1);
+    }
     //proj_v
     matmul_cute(SEQ_LEN, EMBEDING_DIMENSION / 4, EMBEDING_DIMENSION,
         hidden_states_buf_q8_after_pre_rmsnorm, proj_v_weight, proj_v_buf_q16, NULL,NULL,
@@ -1079,7 +1162,18 @@ uint64_t llama_block(
         EMBEDING_DIMENSION, EMBEDING_DIMENSION, EMBEDING_DIMENSION / 4 * 2,//bf16
         CUTEDataTypeI8I8I32,FUSE_DEQUANT_BF16CVRT,1);
 
-
+    __gloden_Q_matmul_I8I8I32_pertoken_pertensor(hidden_states_buf_q8_after_pre_rmsnorm,proj_v_weight,hidden_states_buf_q8_after_pre_rmsnorm_scale,proj_v_scale,tmpbuffer1,SEQ_LEN,EMBEDING_DIMENSION/4,EMBEDING_DIMENSION);
+    
+    __gloden_cvrtfp16(tmpbuffer0,gloden_proj_v_buf_q16,SEQ_LEN,EMBEDING_DIMENSION/4);
+    
+    printf("check proj_v with FUSE_DEQUANT_BF16CVRT:\n");
+    res = check_diff_byte(proj_v_buf_q16,gloden_proj_v_buf_q16,SEQ_LEN*EMBEDING_DIMENSION/4);
+    if(res)
+    {
+        printf("\033[31mproj_v with FUSE_DEQUANT_BF16CVRT have diff\033[0m\n");
+        exit(-1);
+    }
+    
     //scores
     for (int i = 0; i < N_HEAD_Q; i++) {
         void *A = (void*)proj_q_buf_q16 + i * KEY_DIMENSION * 2;//*2 for bf16 2Byte 
@@ -1094,6 +1188,28 @@ uint64_t llama_block(
             CUTEDataTypeF16F16F32,FUSE_MASKED_SOFTMAX_KVSCALE_BF16CVRT,0);
     }
 
+    reshape_to_head(proj_q_buf_q16,tmpbuffer0,SEQ_LEN,N_HEAD_Q,KEY_DIMENSION);
+    reshape_to_head(proj_k_buf_q16,tmpbuffer1,SEQ_LEN,N_HEAD_KV,KEY_DIMENSION);
+    for(int i=0;i<N_HEAD_Q;i++)
+    {
+        uint16_t* A = (uint16_t*)tmpbuffer0 + i * SEQ_LEN * KEY_DIMENSION;
+        uint16_t* B = (uint16_t*)tmpbuffer1 + (i/(N_HEAD_Q/N_HEAD_KV)) * SEQ_LEN * KEY_DIMENSION;
+        float* C = (float*)tmpbuffer2 + i * SEQ_LEN * SEQ_LEN;
+        __gloden_f16_matmul(A,B,C,SEQ_LEN,SEQ_LEN,KEY_DIMENSION);
+        for(int j=0;j<SEQ_LEN*SEQ_LEN;j++)
+        {
+            C[j] = C[j]/8.0f;
+        }
+        __gloden_softmax(C,C,bitmask_ptr,SEQ_LEN,SEQ_LEN);
+        __gloden_cvrtfp16(C,gloden_scores_buf_q16+i*SEQ_LEN*SEQ_LEN,SEQ_LEN,SEQ_LEN);
+    }
+    printf("check scores with FUSE_MASKED_SOFTMAX_KVSCALE_BF16CVRT:\n");
+    res = check_diff_byte((void*)scores_buf_q16,gloden_scores_buf_q16,N_HEAD_Q*SEQ_LEN*SEQ_LEN);
+    if(res)
+    {
+        printf("\033[31mscores with FUSE_MASKED_SOFTMAX_KVSCALE_BF16CVRT have diff\033[0m\n");
+        exit(-1);
+    }
     //attention
     for (int i = 0; i < N_HEAD_Q; i++) {
         float *A = (void*)scores_buf_q16 + i * SEQ_LEN * SEQ_LEN * 2;//32*128*128
@@ -1109,7 +1225,25 @@ uint64_t llama_block(
     //smoothquant attention
     smoothquant(TCM_BUFF,SEQ_LEN, EMBEDING_DIMENSION,attn_buf_q8,attn_buf_q8_scale, true);
 
+    for(int i=0;i<N_HEAD_Q;i++)
+    {
+        uint16_t* A = (uint16_t*)scores_buf_q16 + i * SEQ_LEN * SEQ_LEN;
+        uint16_t* B = (uint16_t*)proj_v_buf_q16 + (i/(N_HEAD_Q/N_HEAD_KV)) * VALUE_DIMENSION * SEQ_LEN;
+        float* C = (float*)tmpbuffer0 + i * VALUE_DIMENSION * SEQ_LEN;
+        __gloden_f16_matmul(A,B,C,SEQ_LEN,VALUE_DIMENSION,SEQ_LEN);
+    }
+    reshape_to_seq(tmpbuffer0,tmpbuffer1,SEQ_LEN,N_HEAD_Q,VALUE_DIMENSION);
+    __gloden_smoothquantO1(tmpbuffer1,gloden_attn_buf_q8,gloden_attn_buf_q8_scale,SEQ_LEN,EMBEDING_DIMENSION);
+    printf("check attention smoothquant:\n");
+    res = check_diff_byte(attn_buf_q8,gloden_attn_buf_q8,SEQ_LEN*EMBEDING_DIMENSION);
+    if(res)
+    {
+        printf("\033[31mattention smoothquant have diff\033[0m\n");
+        exit(-1);
+    }
 
+
+    memcpy(tmpbuffer2, identity, sizeof(float) * SEQ_LEN * EMBEDING_DIMENSION);
     //proj_o
     matmul_cute(SEQ_LEN, EMBEDING_DIMENSION, EMBEDING_DIMENSION,
         attn_buf_q8, proj_o_weight, proj_o_buf_f32,identity,NULL,//proj_o_buf_f32 == identity == hidden_states_output
@@ -1119,7 +1253,21 @@ uint64_t llama_block(
 
     RMSnorm_With_getabsmax_scale(proj_o_buf_f32, TCM_BUFF, ffn_norm_weight, proj_o_buf_after_RMSNORM_q8_scale, RMS_EPSILON, 1, SEQ_LEN, EMBEDING_DIMENSION);
     smoothquant(TCM_BUFF,SEQ_LEN, EMBEDING_DIMENSION,proj_o_buf_after_RMSNORM_q8, proj_o_buf_after_RMSNORM_q8_scale, false);
- 
+
+    __gloden_Q_matmul_I8I8I32(attn_buf_q8,proj_o_weight,attn_buf_q8_scale,proj_o_scale,tmpbuffer0,SEQ_LEN,EMBEDING_DIMENSION,EMBEDING_DIMENSION);
+    for(int i=0;i<SEQ_LEN*EMBEDING_DIMENSION;i++)
+    {
+        tmpbuffer1[i] = tmpbuffer0[i] + tmpbuffer2[i];
+    }
+    __gloden_RMSnorm(tmpbuffer1,gloden_TCM_buffer,ffn_norm_weight,RMS_EPSILON,1,SEQ_LEN,EMBEDING_DIMENSION);
+    __gloden_smoothquantO1(gloden_TCM_buffer,gloden_proj_o_buf_after_RMSNORM_q8,gloden_proj_o_buf_after_RMSNORM_q8_scale,SEQ_LEN,EMBEDING_DIMENSION);
+    printf("check proj_o and rmsnorm and smoothquant:\n");
+    res = check_diff_byte(proj_o_buf_after_RMSNORM_q8,gloden_proj_o_buf_after_RMSNORM_q8,SEQ_LEN*EMBEDING_DIMENSION);
+    if(res)
+    {
+        printf("\033[31mproj_o and rmsnorm and smoothquant have diff\033[0m\n");
+        exit(-1);
+    }
 
     //ffn_gate
     matmul_cute(SEQ_LEN, FFN_DIMENSION, EMBEDING_DIMENSION,
@@ -1127,6 +1275,9 @@ uint64_t llama_block(
         proj_o_buf_after_RMSNORM_q8_scale,ffn_gate_scale,SCALE_TYPE_PERTOKEN_A_PERTENSOR_B,
         EMBEDING_DIMENSION, EMBEDING_DIMENSION, FFN_DIMENSION * 4,//fp32
         CUTEDataTypeI8I8I32,FUSE_DEQUANT_SILU,0);
+    
+    __gloden_Q_matmul_I8I8I32(proj_o_buf_after_RMSNORM_q8,ffn_gate_weight,proj_o_buf_after_RMSNORM_q8_scale,ffn_gate_scale,tmpbuffer0,SEQ_LEN,FFN_DIMENSION,EMBEDING_DIMENSION);
+    __gloden_silu(tmpbuffer0,gloden_ffn_gate_buf_f32,1,FFN_DIMENSION,EMBEDING_DIMENSION);
 
     //ffn_up
     matmul_cute(SEQ_LEN, FFN_DIMENSION, EMBEDING_DIMENSION,
@@ -1136,13 +1287,38 @@ uint64_t llama_block(
         CUTEDataTypeI8I8I32,FUSE_DEQUANT_HADAMARD_QUANTSTAGE1,0);
 
     smoothquant(ffn_up_buf_f32,SEQ_LEN, FFN_DIMENSION,ffn_up_buf_q8, ffn_up_buf_q8_scale, false);
+    __gloden_Q_matmul_I8I8I32(proj_o_buf_after_RMSNORM_q8,ffn_up_weight,proj_o_buf_after_RMSNORM_q8_scale,ffn_up_scale,tmpbuffer0,SEQ_LEN,FFN_DIMENSION,EMBEDING_DIMENSION);
+    for(int i=0;i<SEQ_LEN*FFN_DIMENSION;i++)
+    {
+        tmpbuffer1[i] = tmpbuffer0[i] * ((float_t *)gloden_ffn_gate_buf_f32)[i];
+    }
+    __gloden_smoothquantO1(tmpbuffer1,gloden_ffn_up_buf_q8,gloden_ffn_up_buf_q8_scale,SEQ_LEN,FFN_DIMENSION);
+    printf("check ffn_up and silu and smoothquant:\n");
+    res = check_diff_byte(ffn_up_buf_q8,gloden_ffn_up_buf_q8,SEQ_LEN*FFN_DIMENSION);
+    if(res)
+    {
+        printf("\033[31mffn_up and silu and smoothquant have diff\033[0m\n");
+        exit(-1);
+    }
     //ffn_down
+    memcpy(tmpbuffer2, proj_o_buf_f32, sizeof(float) * SEQ_LEN * EMBEDING_DIMENSION);//identity
     matmul_cute(SEQ_LEN, EMBEDING_DIMENSION, FFN_DIMENSION,
         ffn_up_buf_f32, ffn_down_weight, hidden_states_output,proj_o_buf_f32,NULL,//proj_o_buf_f32 == identity == hidden_states_output
         ffn_up_buf_q8_scale,ffn_down_scale,SCALE_TYPE_PERTOKEN_A_PERTENSOR_B,
         EMBEDING_DIMENSION, FFN_DIMENSION, EMBEDING_DIMENSION * 4,//fp32
         CUTEDataTypeI8I8I32,FUSE_DEQUANT_RESADD,0);
-
+    __gloden_Q_matmul_I8I8I32(ffn_up_buf_q8,ffn_down_weight,ffn_up_buf_q8_scale,ffn_down_scale,tmpbuffer0,SEQ_LEN,EMBEDING_DIMENSION,FFN_DIMENSION);
+    for(int i=0;i<SEQ_LEN*EMBEDING_DIMENSION;i++)
+    {
+        gloden_hidden_states_output[i] = tmpbuffer0[i] + tmpbuffer2[i];
+    }
+    printf("check ffn_down and resadd:\n");
+    res = check_diff_byte(hidden_states_output,gloden_hidden_states_output,SEQ_LEN*EMBEDING_DIMENSION);
+    if(res)
+    {
+        printf("\033[31mffn_down and resadd have diff\033[0m\n");
+        exit(-1);
+    }
 
     return 0;
 }

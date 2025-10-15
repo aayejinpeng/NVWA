@@ -170,6 +170,12 @@ void __gloden_Q_matmul_I8I8I32_pertoken_pertensor(int8_t* A, int8_t* B, float* A
     __gloden_pertoken_pertensor_scale(A, B, A_scale, B_scale, output, M, N, K);
 }
 
+static inline float fast_sqrt(float x) {
+    float result;
+    __asm__ volatile ("fsqrt.s %0, %1" : "=f"(result) : "f"(x));
+    return result;
+}
+
 void __gloden_RMSnorm(float* input, float* output, float* per_channle_scale, float rms_epsilon, int batch, int seq_len, int hidden_dim)
 {
     assert(batch > 0 && seq_len > 0 && hidden_dim > 0);
@@ -190,7 +196,7 @@ void __gloden_RMSnorm(float* input, float* output, float* per_channle_scale, flo
                 sum_vec = __riscv_vfadd_vv_f32m4(sum_vec, vec_2, vl);
             }
             sum = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredusum_vs_f32m4_f32m1(sum_vec, __riscv_vfmv_v_f_f32m1(0.0f, vl_0), vl_0));
-            float rms = 1.0 / sqrt(sum / hidden_dim + rms_epsilon);
+            float rms = 1.0 / fast_sqrt(sum / hidden_dim + rms_epsilon);
             vfloat32m4_t rms_vec = __riscv_vfmv_v_f_f32m4(rms, vl_0);
             // 归一化并缩放
             for (int h = 0, avl = hidden_dim; avl > 0; h += vl, avl -= vl) {
@@ -391,7 +397,23 @@ void __gloden_smoothquantO1_stage2_quant(float* A, int8_t* output,float* scale, 
     }
 
 }
+void __gloden_cvrtfp16(void* x, void* y, int M, int N) {
+    // printf("RISC-V specific implementation WORK IN PROGRESS\n");
+    for (int i = 0; i < M; i++) {
+        float* input_row_f32 = &((float*)x)[i*N];
+        _Float16* output_row_f16 = &((_Float16*)y)[i*N];
 
+        size_t avl, vl;
+        size_t vl_0 = __riscv_vsetvl_e32m4(N);
+        vl = vl_0;
+        for (int j = 0, avl = N; avl > 0; j += vl, avl -= vl) {
+            vl = __riscv_vsetvl_e32m4(avl);
+            vfloat32m4_t vec = __riscv_vle32_v_f32m4(&input_row_f32[j], vl);
+            vfloat16m2_t vec_fp16 = __riscv_vfncvt_f_f_w_f16m2(vec, vl);
+            __riscv_vse16_v_f16m2((_Float16*)&output_row_f16[j], vec_fp16, vl);
+        }
+    }
+}
 
 void __gloden_smoothquantO1(float* A, int8_t* output,float* scale, int M,int K)
 {
@@ -455,4 +477,32 @@ void __gloden_softmax(float* x, float* y, void* bitmask_ptr, int M, int N)
         }
     }
   
+}
+int check_diff_byte(void* a, void* b, size_t size)
+{
+    int res = 0;
+    for (size_t i = 0; i < size; i++) {
+        if (((uint8_t*)a)[i] != ((uint8_t*)b)[i]) {
+            printf("diff at index %zu: %u vs %u\n", i, ((uint8_t*)a)[i], ((uint8_t*)b)[i]);
+            res = -1;
+        }
+    }
+    return res;
+}
+
+float check_diff_radio(void* a, void* b, size_t size)
+{
+    float max_diff = 0.0f;
+    float sum_diff = 0.0f;
+    int count = 0;
+    for (size_t i = 0; i < size / sizeof(float); i++) {
+        float diff = fabs(((float*)a)[i] - ((float*)b)[i]);
+        if (diff > max_diff) {
+            max_diff = diff;
+        }
+        sum_diff += diff;
+        count++;
+    }
+    printf("max diff: %e, avg diff: %e\n", max_diff, sum_diff / count);
+    return max_diff;
 }

@@ -8,6 +8,7 @@
 #include "cuteMarcoinstHelper.h"
 #include <riscv_vector.h>
 #include <assert.h>
+#include "gloden_opt.h"
 
 #define LAYEROPT 2048
 #define FUSEOPT 1024
@@ -111,6 +112,25 @@ static int8_t ffn_up_buf_q8[SEQ_LEN][FFN_DIMENSION] __attribute__((aligned(64)))
 static float ffn_up_buf_q8_scale[SEQ_LEN] __attribute__((aligned(64))) = {0};
 
 static float* hidden_states_output= identity;
+
+static float gloden_identity[SEQ_LEN][EMBEDING_DIMENSION] __attribute__((aligned(64))) = {0};
+static int8_t gloden_hidden_states_buf_q8_after_pre_rmsnorm[SEQ_LEN][EMBEDING_DIMENSION] __attribute__((aligned(64))) = {0};
+static float  gloden_hidden_states_buf_q8_after_pre_rmsnorm_scale[SEQ_LEN] = {0};
+static _Float16  gloden_proj_q_buf_q16[SEQ_LEN][N_HEAD_Q][KEY_DIMENSION] __attribute__((aligned(64))) = {0};
+static _Float16  gloden_proj_k_buf_q16[SEQ_LEN][N_HEAD_KV][KEY_DIMENSION] __attribute__((aligned(64))) = {0};
+static _Float16  gloden_proj_v_buf_q16[SEQ_LEN][N_HEAD_KV][VALUE_DIMENSION] __attribute__((aligned(64))) = {0};
+static _Float16  gloden_scores_buf_q16[N_HEAD_Q][SEQ_LEN][SEQ_LEN] __attribute__((aligned(64))) = {0};
+static int8_t gloden_attn_buf_q8[SEQ_LEN][EMBEDING_DIMENSION] __attribute__((aligned(64))) = {0};
+static float  gloden_attn_buf_q8_scale[SEQ_LEN] = {0};
+static int8_t gloden_proj_o_buf_after_RMSNORM_q8[SEQ_LEN][EMBEDING_DIMENSION] __attribute__((aligned(64))) = {0};
+static float  gloden_proj_o_buf_after_RMSNORM_q8_scale[SEQ_LEN] = {0};
+static float gloden_ffn_gate_buf_f32[SEQ_LEN][FFN_DIMENSION] __attribute__((aligned(64))) = {0};
+static int8_t gloden_ffn_up_buf_q8[SEQ_LEN][FFN_DIMENSION] __attribute__((aligned(64))) = {0};
+static float gloden_ffn_up_buf_q8_scale[SEQ_LEN] __attribute__((aligned(64))) = {0};
+static float* gloden_hidden_states_output= gloden_identity;
+static float*  gloden_proj_o_buf_f32 = gloden_identity;
+static float* gloden_ffn_up_buf_f32 = gloden_ffn_gate_buf_f32;
+static float gloden_TCM_buffer[1024*1024*2] __attribute__((aligned(64))) = {0};
 
 
 
@@ -1028,9 +1048,17 @@ uint64_t llama_block(
     // input_size=6, d=2048, dk=64, dv=64, head_q=32, head_kv=8
     printf("[WorkLoad-(%5d,%5d,*****)LayerWise]RMSnorm_input\n",SEQ_LEN, EMBEDING_DIMENSION);
 
-    RMSnorm_With_getabsmax_scale(identity, TCM_BUFF, attn_norm_weight, hidden_states_buf_q8_after_pre_rmsnorm_scale, RMS_EPSILON, 1, SEQ_LEN, EMBEDING_DIMENSION);
+    memcpy(gloden_identity, hidden_states, sizeof(float) * SEQ_LEN * EMBEDING_DIMENSION);
     
+    //pre rmsnorm
+    RMSnorm_With_getabsmax_scale(identity, TCM_BUFF, attn_norm_weight, hidden_states_buf_q8_after_pre_rmsnorm_scale, RMS_EPSILON, 1, SEQ_LEN, EMBEDING_DIMENSION);
     smoothquant(TCM_BUFF,SEQ_LEN, EMBEDING_DIMENSION,hidden_states_buf_q8_after_pre_rmsnorm, hidden_states_buf_q8_after_pre_rmsnorm_scale, false);
+
+    __gloden_RMSnorm(gloden_identity,gloden_TCM_buffer,attn_norm_weight,RMS_EPSILON,1,SEQ_LEN,EMBEDING_DIMENSION);
+    __gloden_smoothquantO1(TCM_BUFF,gloden_hidden_states_buf_q8_after_pre_rmsnorm,gloden_hidden_states_buf_q8_after_pre_rmsnorm_scale,SEQ_LEN,EMBEDING_DIMENSION);
+
+    //check
+    for()
 
     //proj_q
     matmul_cute(SEQ_LEN, EMBEDING_DIMENSION, EMBEDING_DIMENSION,
