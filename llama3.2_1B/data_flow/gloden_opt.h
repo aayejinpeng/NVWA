@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <riscv_vector.h>
 #include <stdint.h>
@@ -16,11 +17,11 @@ void __gloden_f16_matmul(uint16_t* A, uint16_t* B, float* output, int M, int N,i
         float acc = 0.0f;
         for(int k=0;k<K;k++)
         {
-            float a_val = (float)f16A[i*M+k];
-            float b_val = (float)f16B[j*N+k];
+            float a_val = (float)f16A[i*K+k];
+            float b_val = (float)f16B[j*K+k];
             acc += a_val * b_val;
         }
-        C[i*M+j] = acc;
+        C[i*N+j] = acc;
     }
 }
 
@@ -137,7 +138,6 @@ void __gloden_GeLu(float* input, float* output, int batch, int exhidden_dim, int
             }
         }
     }
-
 }
 
 void __gloden_Q_matmul_I8I8I32(int8_t* A, int8_t* B, float* A_scale, float* B_scale, float* output, int M, int N,int K)
@@ -481,10 +481,28 @@ void __gloden_softmax(float* x, float* y, void* bitmask_ptr, int M, int N)
 int check_diff_byte(void* a, void* b, size_t size)
 {
     int res = 0;
+    int count = 0;
     for (size_t i = 0; i < size; i++) {
         if (((uint8_t*)a)[i] != ((uint8_t*)b)[i]) {
             printf("diff at index %zu: %u vs %u\n", i, ((uint8_t*)a)[i], ((uint8_t*)b)[i]);
             res = -1;
+            count ++;
+            if(count > 100) exit(-1);
+        }
+    }
+    return res;
+}
+
+int check_diff_i32(int* a, int* b, size_t size)
+{
+    int res = 0;
+    int count = 0;
+    for (size_t i = 0; i < size; i++) {
+        if (a[i]!=b[i]) {
+            printf("diff at index %zu: %d vs %d\n", i, a[i],b[i]);
+            res = -1;
+            count ++;
+            if(count > 100) exit(-1);
         }
     }
     return res;
@@ -495,14 +513,44 @@ float check_diff_radio(void* a, void* b, size_t size)
     float max_diff = 0.0f;
     float sum_diff = 0.0f;
     int count = 0;
-    for (size_t i = 0; i < size / sizeof(float); i++) {
+    for (size_t i = 0; i < size ; i++) {
+        float max = 0.0f;
         float diff = fabs(((float*)a)[i] - ((float*)b)[i]);
-        if (diff > max_diff) {
-            max_diff = diff;
+        fabs(((float*)a)[i]) > max ? max = fabs(((float*)a)[i]) : max;
+        fabs(((float*)b)[i]) > max ? max = fabs(((float*)b)[i]) : max;
+        if (max!=0 && diff/max > 1e-4) {
+            printf("diff at index %zu: %f vs %f\n", i, (float)(((float*)a)[i]), (float)(((float*)b)[i]));
+            count++;
+            if(count == 1000)
+            {
+                exit(-1);
+            }
         }
-        sum_diff += diff;
-        count++;
     }
-    printf("max diff: %e, avg diff: %e\n", max_diff, sum_diff / count);
+    // printf();
     return max_diff;
+}
+
+float check_f16_diff_radio(void* a, void* b, size_t size)
+{
+    float max_diff = 0.0f;
+    float sum_diff = 0.0f;
+    
+    int count = 0;
+    for (size_t i = 0; i < size; i++) {
+        float max = 0.0f;
+        float diff = fabs(((_Float16*)a)[i] - ((_Float16*)b)[i]);
+        fabs(((_Float16*)a)[i]) > max ? max = fabs(((_Float16*)a)[i]) : max;
+        fabs(((_Float16*)b)[i]) > max ? max = fabs(((_Float16*)b)[i]) : max;
+        if (max!=0 && diff/max > 1e-4) {
+            printf("diff at index %zu: %f vs %f\n", i, (float)(((_Float16*)a)[i]), (float)(((_Float16*)b)[i]));
+            count++;
+            if(count == 100)
+            {
+                exit(-1);
+            }
+        }
+        
+    }
+    return 0;
 }
