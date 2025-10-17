@@ -4,7 +4,8 @@
 #if defined(__riscv)// RISC-V 架构
 #include <riscv_vector.h>
 
-inline vfloat32m4_t vec_sin_small(vfloat32m4_t x, size_t vl) {
+static inline vfloat32m4_t vec_sin_small(vfloat32m4_t x, size_t vl) 
+{
     // 计算 sin(x) 的泰勒展开，适用于小角度 x
     // sin(x) ≈ x - x³/3! + x⁵/5! - x⁷/7! + x⁹/9! - x¹¹/11!
     // sin(x) ≈ x * (c₁ + x² * (c₃ + x² * (c₅ + x² * (c₇ + x² * (c₉ + x² * c₁₁)))))
@@ -28,7 +29,8 @@ inline vfloat32m4_t vec_sin_small(vfloat32m4_t x, size_t vl) {
 }
 
 
-inline vfloat32m4_t vec_sin(vfloat32m4_t x, size_t vl) {
+static inline vfloat32m4_t vec_sin(vfloat32m4_t x, size_t vl) 
+{
     const float PI = 3.14159265359f;
     const float PI_DIV_2 = PI / 2.0f;
     vfloat32m4_t new_rad = __riscv_vfadd_vv_f32m4(x, __riscv_vfmv_v_f_f32m4(PI_DIV_2, vl), vl);
@@ -50,7 +52,8 @@ inline vfloat32m4_t vec_sin(vfloat32m4_t x, size_t vl) {
     return sin_result;
 }
 
-inline vfloat32m4_t vec_cos(vfloat32m4_t x, size_t vl) {
+static inline vfloat32m4_t vec_cos(vfloat32m4_t x, size_t vl) 
+{
     // 将 x 映射到 [-π, π]
     const float PI = 3.14159265359f;
     const float PI_DIV_2 = PI / 2.0f;
@@ -59,7 +62,8 @@ inline vfloat32m4_t vec_cos(vfloat32m4_t x, size_t vl) {
 }
 
 //TODO: Update the function definitions to reflect the new OPSNAME
-void rope(float* input, float* output, float* rope_theta, int pos, int batch, int n_head, int seq_len, int head_dim) {
+void rope(float* input, float* output, float* rope_theta, int pos, int batch, int n_head, int seq_len, int head_dim)
+{
     // 获取最大向量长度
     const int half_dim = head_dim / 2;
 

@@ -4,7 +4,7 @@
 #if defined(__riscv)// RISC-V 架构
 # include <riscv_vector.h>
 //TODO: Update the function definitions to reflect the new OPSNAME
-inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
+static inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // x = ln2 * a + b, 其中 b ∈ [0, ±ln2]
     // eˣ = 2ᵃ * eᵇ
     // 常数定义
