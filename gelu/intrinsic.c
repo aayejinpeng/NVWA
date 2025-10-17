@@ -4,7 +4,7 @@
 #if defined(__riscv)// RISC-V 架构
 #include <riscv_vector.h>
 
-inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
+static inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     // x = ln2 * a + b, 其中 b ∈ [0, ±ln2]
     // eˣ = 2ᵃ * eᵇ
     // 常数定义
@@ -61,7 +61,7 @@ inline vfloat32m4_t vec_exp(vfloat32m4_t x, size_t vl) {
     return p;
 }
 
-inline vfloat32m4_t vec_tanh(vfloat32m4_t x, size_t vl) {
+static inline vfloat32m4_t vec_tanh(vfloat32m4_t x, size_t vl) {
     const float THRESHOLD = 12.0f; // 阈值
     // 计算 |x|
     vfloat32m4_t abs_x = __riscv_vfabs_v_f32m4(x, vl);

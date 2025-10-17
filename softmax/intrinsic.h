@@ -1,0 +1,1 @@
+void softmax(float* x, float* y, void* bitmask_ptr, int M, int N);

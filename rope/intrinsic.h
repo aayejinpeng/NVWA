@@ -1,0 +1,1 @@
+void rope(float* input, float* output, float* rope_theta, int pos, int batch, int n_head, int seq_len, int head_dim);
