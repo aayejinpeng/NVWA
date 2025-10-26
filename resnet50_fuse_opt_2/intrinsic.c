@@ -38,7 +38,7 @@ void fuse_shift_scale_A_right_scale_1_resadd_relu(int32_t * input, int8_t * outp
 
 }
 
-void fuse_shift_scale_resadd_relu_dim_j_64(int32_t * input, int8_t * output, uint64_t stride_input, uint64_t stride_output,uint64_t shift_scale, uint64_t dim_I,int8_t *residual)
+void fuse_shift_scale_A_right_scale_1_resadd_relu_dim_j_64(int32_t * input, int8_t * output, uint64_t stride_input, uint64_t stride_output,uint64_t shift_scale, uint64_t dim_I,int8_t *residual)
 {
     // Implementation goes here
     for(int i = 0;i<dim_I;i++)
@@ -51,7 +51,7 @@ void fuse_shift_scale_resadd_relu_dim_j_64(int32_t * input, int8_t * output, uin
         // 1. load int32
         vint32m4_t vec_input = __riscv_vle32_v_i32m4(row_input, vl);
         // 2. right shift
-        vint8m1_t vec_shifted = __riscv_vnclip_wx_i8m1(__riscv_vnclip_wx_i16m2(vec_input,0,vl), shift_scale, vl);
+        vint8m1_t vec_shifted = __riscv_vnclip_wx_i8m1(__riscv_vnclip_wx_i16m2(vec_input,shift_scale,vl), 1, vl);
         // 3. load residual
         vint8m1_t vec_residual = __riscv_vle8_v_i8m1(row_residual, vl);
         // 4. add
