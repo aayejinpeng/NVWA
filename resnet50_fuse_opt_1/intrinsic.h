@@ -1,0 +1,1 @@
+void fuse_shift_scale_resadd_relu(int32_t * input, int8_t * output, uint64_t stride_input, uint64_t stride_output,uint64_t shift_scale, uint64_t dim_I,int8_t *residual);
