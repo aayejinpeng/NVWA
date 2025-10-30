@@ -32,15 +32,16 @@ static inline vfloat32m4_t vec_sin_small(vfloat32m4_t x, size_t vl)
 static inline vfloat32m4_t vec_sin(vfloat32m4_t x, size_t vl) 
 {
     const float PI = 3.14159265359f;
+    const float one_div_PI = 1.0f / PI;
     const float PI_DIV_2 = PI / 2.0f;
-    vfloat32m4_t new_rad = __riscv_vfadd_vv_f32m4(x, __riscv_vfmv_v_f_f32m4(PI_DIV_2, vl), vl);
-    vfloat32m4_t pi_vec = __riscv_vfmv_v_f_f32m4(PI, vl);
-    vfloat32m4_t round = __riscv_vfdiv_vv_f32m4(new_rad, pi_vec, vl);
+    const float two_DIV_PI = 2.0f / PI;
+    vfloat32m4_t new_rad = __riscv_vfadd_vf_f32m4(x, PI_DIV_2, vl);
+    vfloat32m4_t round = __riscv_vfmul_vf_f32m4(new_rad, one_div_PI, vl);
     vfloat32m4_t magic = __riscv_vfmv_v_f_f32m4(0x1.8p23f, vl); // 2²³ + 2²²，用于取整
     round = __riscv_vfadd_vv_f32m4(round, magic, vl);
     round = __riscv_vfsub_vv_f32m4(round, magic, vl);
-    new_rad = __riscv_vfsub_vv_f32m4(new_rad, __riscv_vfmul_vv_f32m4(round, pi_vec, vl), vl);
-    new_rad = __riscv_vfsub_vv_f32m4(new_rad, __riscv_vfmv_v_f_f32m4(PI_DIV_2, vl), vl);
+    new_rad = __riscv_vfsub_vv_f32m4(new_rad, __riscv_vfmul_vf_f32m4(round, PI, vl), vl);
+    new_rad = __riscv_vfsub_vf_f32m4(new_rad, PI_DIV_2, vl);
     // 计算 sin(new_rad)
     vfloat32m4_t sin_result = vec_sin_small(new_rad, vl);
     // 根据 round 的奇偶性调整符号
@@ -57,7 +58,7 @@ static inline vfloat32m4_t vec_cos(vfloat32m4_t x, size_t vl)
     // 将 x 映射到 [-π, π]
     const float PI = 3.14159265359f;
     const float PI_DIV_2 = PI / 2.0f;
-    vfloat32m4_t new_rad = __riscv_vfadd_vv_f32m4(x, __riscv_vfmv_v_f_f32m4(PI_DIV_2, vl), vl);
+    vfloat32m4_t new_rad = __riscv_vfadd_vf_f32m4(x, PI_DIV_2, vl);
     return vec_sin(new_rad, vl);
 }
 
